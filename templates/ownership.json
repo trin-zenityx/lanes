@@ -1,0 +1,35 @@
+{
+  "_comment": "LANES — เขตไฟล์ต่อแผนก · ใช้โดย scripts/team/check-ownership.mjs ใน CI · coordinator เป็นผู้ดูแลไฟล์นี้",
+  "_howToEdit": "แบ่งตาม 'ใครเป็นเจ้าของการตัดสินใจ' ไม่ใช่ตามชนิดไฟล์ · ยกไฟล์กลางให้รายไฟล์ได้ถ้าพิสูจน์ว่ามีผู้ใช้แผนกเดียว (git grep -ln)",
+
+  "coordinatorLocked": [
+    "src/lib/",
+    "src/config/",
+    "src/components/shared/",
+    "package.json",
+    "_comment: ไฟล์ที่ใช้ข้ามแผนก — แตะได้เฉพาะ coordinator · แผนกอยากแก้ให้เขียน request"
+  ],
+
+  "alwaysAllowed": [
+    "docs/team/status/",
+    "_comment: ทุกแผนกเขียนได้เสมอ (ไฟล์สถานะของตัวเอง)"
+  ],
+
+  "domains": {
+    "frontend": [
+      "src/components/frontend/",
+      "src/pages/Home.tsx"
+    ],
+    "api": [
+      "src/api/"
+    ],
+    "_example-per-file-grant": [
+      "src/lib/useFrontendOnly.ts",
+      "_comment: ไฟล์ใน coordinatorLocked ที่ยกให้แผนกนี้ — exact match ชนะ prefix lock"
+    ]
+  },
+
+  "domainDenied": {
+    "_comment": "ถ้าอยากห้ามแผนกหนึ่งแตะ path ที่อยู่ในเขตตัวเอง ใส่ที่นี่ (ไม่ค่อยได้ใช้)"
+  }
+}

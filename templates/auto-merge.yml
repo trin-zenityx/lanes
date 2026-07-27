@@ -1,0 +1,69 @@
+# 🤖 LANES auto-merge gatekeeper
+# ทริกเกอร์: push ขึ้น parallel/** ที่ commit บนสุดขึ้นต้นด้วย "done("
+# ด่าน: ① done-commit ② ownership ③ build ④ typecheck ⑤ tests
+# ผ่านครบ → merge เข้า main · ตกด่านใด = กากบาทแดง branch ค้างไว้ให้ coordinator
+#
+# 🔴 แก้ 3 จุดก่อนใช้: คำสั่ง install / build+typecheck / test (มี  # ← แก้ตรงนี้  กำกับ)
+# 🔴 ห้ามเพิ่มขั้น "ลบ branch หลัง merge" — เกิดจริง: robot ลบ branch แล้วงานที่ push
+#    ยังไม่เสร็จหายไป 3 ครั้งในวันเดียว
+name: auto-merge
+
+on:
+  push:
+    branches: ['parallel/**']
+
+permissions:
+  contents: write
+
+# ⚠️ push ที่ไม่ใช่ done( ต้องได้ group ของตัวเอง — ไม่งั้นมันไปเบียด done( ที่รอคิวอยู่
+#    GitHub เก็บ run ที่ pending ในกลุ่มเดียวกันได้แค่ตัวเดียว ⇒ run ของ done( ถูก cancel
+#    แล้ว HEAD ก็ไม่ใช่ done( แล้ว = งวดนั้นค้างถาวร (เกิดจริง)
+concurrency:
+  group: ${{ startsWith(github.event.head_commit.message, 'done(') && format('auto-merge-{0}', github.ref) || format('auto-merge-noop-{0}', github.sha) }}
+  cancel-in-progress: false
+
+jobs:
+  gate-and-merge:
+    if: startsWith(github.event.head_commit.message, 'done(')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Gate ② — ownership
+        run: |
+          git fetch origin main
+          git diff --name-status origin/main...HEAD > /tmp/changed.txt
+          echo "=== changed files ==="; cat /tmp/changed.txt
+          node scripts/team/check-ownership.mjs "${GITHUB_REF_NAME}" /tmp/changed.txt
+
+      - name: Merge preview (ตรวจ conflict กับ main ล่าสุด)
+        run: |
+          git config user.name "lanes-auto-merge"
+          git config user.email "bot@example.com"
+          git checkout -b merge-preview origin/main
+          git merge --no-ff "${GITHUB_SHA}" -m "merge(parallel): ${GITHUB_REF_NAME} [auto-merge]"
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Gate ③④ — build + typecheck
+        run: |
+          npm ci                    # ← แก้ตรงนี้
+          npm run build             # ← แก้ตรงนี้
+          npx tsc --noEmit          # ← แก้ตรงนี้ · 🔴 อย่าลืมข้อนี้: bundler ส่วนใหญ่ถอด type ทิ้ง
+                                    #   ไม่ได้ typecheck ⇒ ถ้าไม่มีบรรทัดนี้ ด่านจับ type error ไม่ได้เลย
+
+      - name: Gate ⑤ — tests
+        run: npm test               # ← แก้ตรงนี้
+
+      - name: Merge เข้า main
+        run: |
+          for i in 1 2 3; do
+            git fetch origin main
+            git checkout -B merge-final origin/main
+            git merge --no-ff "${GITHUB_SHA}" -m "merge(parallel): ${GITHUB_REF_NAME} [auto-merge]" || exit 1
+            git push origin HEAD:main && exit 0
+            echo "main ขยับระหว่างทาง — ลองใหม่ ($i/3)"
+          done
+          exit 1
