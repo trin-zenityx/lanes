@@ -69,7 +69,8 @@ Setup Progress:
 
 ```bash
 mkdir -p scripts/team
-cp scripts/check-ownership.mjs scripts/check-charter-size.mjs  <repo>/scripts/team/
+cp scripts/check-ownership.mjs scripts/check-charter-size.mjs \
+   scripts/gen-zone-brief.mjs                                  <repo>/scripts/team/
 cp scripts/board-sweep.sh scripts/check-work-pushed.sh          <repo>/scripts/
 chmod +x <repo>/scripts/*.sh
 ```
@@ -78,6 +79,7 @@ chmod +x <repo>/scripts/*.sh
 |---|---|
 | `check-ownership.mjs` | ตรวจว่า branch แตะเฉพาะเขตตัวเอง — **ใช้ใน CI** |
 | `check-charter-size.mjs` | กันไฟล์กติกาบวมจนเกิด context rot |
+| `gen-zone-brief.mjs` | **สร้างบรีฟรายเขต** — ตัดค่าตั้งต้นของ session ใหม่ (ดูข้างล่าง) |
 | `board-sweep.sh` | หา **งานที่เสร็จแล้วแต่ค้าง** และ worktree ที่ทีมมองไม่เห็น |
 | `check-work-pushed.sh` | Stop hook — เตือนตอน session จบทั้งที่ยังไม่ push |
 
@@ -108,14 +110,23 @@ chmod +x <repo>/scripts/*.sh
 ```bash
 # ① ownership: แกล้งแตะไฟล์นอกเขต แล้วต้องตีกลับ
 printf 'M\tsrc/lib/anything.ts\n' > /tmp/d.txt
-node scripts/team/check-ownership.mjs frontend /tmp/d.txt   # ต้องขึ้น NEEDS_COORDINATOR
+node scripts/team/check-ownership.mjs parallel/frontend-x /tmp/d.txt   # ต้อง: ไฟล์กลาง: src/lib/…
 
-# ② ownership: แตะไฟล์ในเขต แล้วต้องผ่าน
+# ② ownership: แตะไฟล์ในเขต แล้วต้องผ่าน  ← เคสควบคุมด้านบวก ห้ามข้าม
 printf 'M\tsrc/components/frontend/X.tsx\n' > /tmp/d.txt
-node scripts/team/check-ownership.mjs frontend /tmp/d.txt   # ต้องขึ้น ownership OK
+node scripts/team/check-ownership.mjs parallel/frontend-x /tmp/d.txt   # ต้อง: ownership OK
 
 # ③ size guard: เติมขยะแล้วต้องตีกลับ / ลบออกแล้วต้องผ่าน
+
+# ④ บรีฟรายเขต: แก้ ownership.json แล้วไม่รันตัวสร้าง → --check ต้องตีกลับ
+node scripts/team/gen-zone-brief.mjs --check
 ```
+
+> 🩸 **สูตรนี้เคยผิดมาก่อน และผิดแบบที่อันตรายที่สุด**
+> เวอร์ชันแรกส่ง `frontend` เป็นชื่อ branch แทน `parallel/frontend-x`
+> ⇒ สคริปต์ตีกลับเพราะ **ชื่อ branch ผิดรูปแบบ** ไม่ใช่เพราะตรวจเขตแล้วเจอปัญหา
+> **ขั้น ① เลย "เขียว" ด้วยเหตุผลที่ผิด และขั้น ② พังทั้งที่สคริปต์ทำงานถูก**
+> 🔑 **อ่านข้อความที่ด่านพ่นออกมาเสมอ อย่าดูแค่ว่ามันตีกลับหรือไม่ตีกลับ**
 
 > **ด่านที่ไม่เคยเห็นตัวเองแดง = ไม่ใช่ด่าน**
 > และ **ด่านที่แดงเสมอก็ไม่ใช่ด่าน** — ต้องพิสูจน์ทั้งสองทาง
@@ -153,17 +164,76 @@ bash scripts/board-sweep.sh    # ทำทุกครั้งก่อนบ�
 
 ---
 
-## เลือกให้ถูก: session หรือ subagent
+## 🗂️ บรีฟรายเขต — ทำให้ค่าตั้งต้นถูกลง แทนที่จะเลี่ยงมัน
 
-> ## 🔑 **งานที่ไม่จบด้วย commit → subagent · งานที่จบด้วย commit → session**
+**ปัญหา:** session ใหม่ต้องจ่ายค่าตั้งต้นก่อนเขียนโค้ดบรรทัดแรก —
+อ่านไฟล์กติกาทั้งใบ + เดาว่าบทเรียนไฟล์ไหนเกี่ยว + ไล่โค้ดเอง
+
+**คนส่วนใหญ่แก้ผิดทาง:** เปิด session ประจำแผนกค้างไว้ตลอด เพื่อไม่ต้องจ่ายซ้ำ
+🚫 **อย่าทำ** — เหตุผล 4 ข้อที่วัดได้อยู่ใน [`reference/delegation.md`](reference/delegation.md)
+
+**ทางที่ถูก:** `docs/team/zones/<แผนก>.md` — ใบเดียวจบ
+
+```bash
+node scripts/team/gen-zone-brief.mjs           # สร้าง/อัปเดตทุกเขต
+node scripts/team/gen-zone-brief.mjs --check   # ตรวจว่าไม่เน่า (ใส่ใน CI/เทสต์)
+```
+
+| บล็อก | ที่มา | มีอะไร |
+|---|---|---|
+| **AUTO** | สร้างจาก `ownership.json` + `git log` ทุกครั้ง ⇒ **เน่าไม่ได้** | เขตไฟล์ · สิทธิ์รายไฟล์ · ไฟล์ที่แก้บ่อยที่สุด · งวดล่าสุด · **บทเรียนไฟล์ไหนที่ควรอ่านจริง** |
+| **MANUAL** | เขียนมือ ตัวสร้างไม่แตะ | กับดักของเขตที่ derive ไม่ได้ |
+
+> 🔴 **บรีฟที่ผิด แย่กว่าไม่มีบรีฟ** — คนอ่านจะเชื่อมันแล้วไม่ไปตรวจของจริง
+> นี่คือเหตุผลที่ส่วนที่ derive ได้ **ต้องสร้างใหม่ทุกครั้ง** ไม่ใช่พิมพ์มือ
+
+**🩸 กับดักในตัวสร้างเอง:** ตัวจัดอันดับบทเรียนรู้จักแค่ *ชื่อ path*
+⇒ เขตที่บทเรียนพูดถึงด้วยคำในภาษาอื่น (เช่นคำไทย) จะได้ **0 คะแนน**
+**ถ้าจัดอันดับไม่ได้ ให้ลิสต์ทุกไฟล์พร้อมเขียนกำกับว่าจัดอันดับไม่ได้ — อย่าเงียบ**
+(false negative แพงกว่า false positive เสมอ)
+
+**เจอกับดักใหม่ในเขตไหน → เขียนลงบล็อก MANUAL ของเขตนั้น**
+นี่คือที่ที่ความรู้อยู่ต่อ **ไม่ใช่ในบริบทของ session**
+
+---
+
+## เลือกให้ถูก: ทำเอง · session · subagent
+
+### เกณฑ์แรก — **"งานถัดไปต้องรู้ผลของงานที่ทำอยู่ไหม"**
+
+```
+ต้องรู้ผลก่อนถึงจะสั่งได้   → ทำเอง (เขียนคำสั่งไม่ได้ เพราะยังไม่รู้จะสั่งอะไร)
+ไม่ต้องรู้                  → ส่งต่อทันที ไม่ต้องรอจบงานปัจจุบัน
+```
+
+> ⚠️ เกณฑ์ที่คนมักใช้คือ *"จบด้วย commit ไหม"* — **นั่นวัดที่ชนิดของผลลัพธ์ ซึ่งเป็นแกนที่ผิด**
+> งานที่จบด้วย commit อาจต้องทำเอง (ถ้ามันเป็นโซ่ที่ต้องรู้ผลทีละขั้น)
+> และงานที่ไม่จบด้วย commit ก็ส่งต่อได้ (ถ้ามันเป็นอิสระ)
+
+### เกณฑ์ที่สอง — ส่งต่อแล้ว **ส่งเป็นอะไร**
 
 | | subagent | session |
 |---|---|---|
+| งานแบบไหน | ไม่จบด้วย commit — วัด · กวาด `grep` · ยิงคิวรีนับ · อ่าน log ยาว | จบด้วย commit |
 | ต้นทุน | คืนแค่สรุป **1,000–2,000 tokens** | หน้าต่างบริบทแยกทั้งอัน |
 | **เถียงกลับได้ไหม** | ❌ | ✅ **นี่คือเหตุผลเดียวที่ยังต้องมี session** |
 
-**ต้องเป็น subagent:** วัด · กวาด `grep` · ยิงคิวรีนับ · อ่าน log ยาว · ตรวจว่าคำขอเก่ายังค้างจริงไหม
-🔑 **เหตุผลไม่ใช่แค่ประหยัด — output ยาวๆ อยู่ในบริบทของ subagent ไม่ใช่ของ coordinator**
+🔑 **เหตุผลที่ใช้ subagent ไม่ใช่แค่ประหยัด — output ยาว ๆ อยู่ในบริบทของ subagent ไม่ใช่ของ coordinator**
+
+### กติกาเพิ่มอีก 3 ข้อ
+
+| | |
+|---|---|
+| **1 session = 1 เขต ไม่ใช่ 1 งาน** | กวาดงานค้างของเขตนั้นใส่ใบเดียว ⇒ จ่ายค่าตั้งต้นครั้งเดียว |
+| **session ที่ยังเปิดอยู่ → ส่งข้อความ** | ถูกกว่า brief ใหม่ทั้งใบเสมอ |
+| **หัวหน้าแผนกสร้าง subagent ได้ · เปิด session ใหม่ไม่ได้** | ไม่งั้นไม่มีใครรู้ว่ามีกี่สายวิ่งอยู่ · เพดาน 3–5 พังทันที |
+
+### 🚩 coordinator ต้องเช็คตัวเอง — ด่านจับไม่ได้
+
+**ด่านเขตไฟล์อ่านจากชื่อ branch** ⇒ **coordinator ที่ทำงานบน `main` ไม่เคยถูกด่านตรวจเลย**
+
+เกิดจริง: coordinator ทำรวดเดียว **12 commit แตะ 27 ไฟล์** — เป็นเขตแผนกอื่น **9 ไฟล์** และไม่มีเจ้าของอีก **7 ไฟล์**
+📖 รายละเอียด + เหตุผลว่าทำไม **ไม่เอา** "หัวหน้าแผนกถาวร": [`reference/delegation.md`](reference/delegation.md)
 
 ---
 
@@ -175,7 +245,8 @@ bash scripts/board-sweep.sh    # ทำทุกครั้งก่อนบ�
 | [`reference/context-hygiene.md`](reference/context-hygiene.md) | ไฟล์กติกาเริ่มบวม · session เริ่มลืมกฎ |
 | [`reference/measuring.md`](reference/measuring.md) | เขียนสคริปต์วัด/สแกน · เขียนเทสต์ · เขียนด่าน · ทำ QA |
 | [`reference/numbers.md`](reference/numbers.md) | **รายงานตัวเลขให้ใครก็ตาม** |
-| [`reference/failure-modes.md`](reference/failure-modes.md) | ระบบเริ่มมีอาการแปลกๆ · อยากรู้ว่าจะพังยังไงได้บ้าง |
+| [`reference/failure-modes.md`](reference/failure-modes.md) | ระบบเริ่มมีอาการแปลกๆ · **ด่านเขียวแต่ไม่ได้ตรวจอะไร** |
+| [`reference/delegation.md`](reference/delegation.md) | ตัดสินใจว่าทำเองหรือส่งต่อ · coordinator เริ่มทำเองมากไป |
 
 ---
 
